@@ -146,7 +146,7 @@ Crea: bucket con cifrado, bloqueo público y ciclo de vida; ECR con retención d
 imágenes; Lambda de imagen arm64 (3 GB, 15 min, concurrencia reservada 1) con permisos
 de solo lectura sobre `raw/` y escritura en `bronze/ silver/ gold/`; notificación S3
 filtrada a `raw/ecommerce/_markers/*_SUCCESS`; logs con retención de 14 días;
-presupuesto mensual opcional.
+alertas por SNS; presupuesto mensual opcional.
 
 Para disparar un día a mano: `aws lambda invoke --function-name lakehouse --payload '{"run_date":"2026-10-21"}' --cli-binary-format raw-in-base64-out out.json`.
 
@@ -164,7 +164,23 @@ make gcp-deploy TAG=v1      # build amd64 + push + terraform apply
 Crea: bucket con ciclo de vida Nearline/Coldline para raw; Artifact Registry con
 limpieza; Cloud Run (`min=0`, `max=1`, concurrencia 1, CPU solo durante la petición);
 notificación GCS filtrada por prefijo → Pub/Sub → push autenticado con OIDC; claves
-HMAC en Secret Manager para que DuckDB acceda a GCS; presupuesto opcional.
+HMAC en Secret Manager para que DuckDB acceda a GCS; dead-letter y alertas de
+Monitoring; presupuesto opcional.
+
+## Alertas
+
+| | AWS | GCP |
+|---|---|---|
+| Fallo tras reintentos | Destino `on_failure` de la Lambda → SNS (incluye el evento y el error) | Dead-letter de Pub/Sub tras `max_delivery_attempts` (5) → alerta de Monitoring |
+| Cualquier error | Alarma `Errors ≥ 1` | Alerta por respuestas 5xx de Cloud Run |
+| Cerca del límite de tiempo | Alarma: duración > 80 % del timeout (15 min) | — |
+
+Configura `alert_email` en `terraform.tfvars`. En AWS hay que confirmar la
+suscripción desde el correo que envía SNS. En GCP los mensajes fallidos quedan 7 días
+en la suscripción `<name>-markers-dlq` para revisarlos o reinyectarlos.
+
+Cada reintento vuelve a correr dbt. Para no gastar en reintentos inútiles ante un
+error permanente, baja `max_delivery_attempts` (GCP) o `maximum_retry_attempts` (AWS).
 
 ## Palancas FinOps incluidas
 

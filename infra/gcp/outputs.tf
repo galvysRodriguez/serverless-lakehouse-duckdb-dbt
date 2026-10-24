@@ -17,3 +17,7 @@ output "service_url" {
 output "runner_service_account" {
   value = google_service_account.runner.email
 }
+
+output "dead_letter_subscription" {
+  value = google_pubsub_subscription.dead_letter.name
+}

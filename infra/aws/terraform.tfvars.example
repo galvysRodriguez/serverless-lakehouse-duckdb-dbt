@@ -1,3 +1,4 @@
 region       = "us-east-1"
 bucket_name  = "mi-empresa-lakehouse-dev"
 budget_email = "finops@example.com"
+alert_email = "alertas@example.com"

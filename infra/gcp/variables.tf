@@ -69,3 +69,15 @@ variable "price_per_request" {
   type    = number
   default = 0.0000004
 }
+
+variable "alert_email" {
+  description = "Email para las alertas de Cloud Monitoring (fallos, frescura). Vacío = políticas sin canal de notificación."
+  type        = string
+  default     = ""
+}
+
+variable "max_delivery_attempts" {
+  description = "Entregas de un mensaje antes de mandarlo a la dead-letter."
+  type        = number
+  default     = 5
+}

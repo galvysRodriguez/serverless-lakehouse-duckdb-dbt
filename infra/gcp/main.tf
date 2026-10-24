@@ -17,6 +17,7 @@ resource "google_project_service" "apis" {
   for_each = toset([
     "artifactregistry.googleapis.com",
     "iam.googleapis.com",
+    "monitoring.googleapis.com",
     "pubsub.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
@@ -287,6 +288,11 @@ resource "google_pubsub_subscription" "push" {
     maximum_backoff = "600s"
   }
 
+  dead_letter_policy {
+    dead_letter_topic     = google_pubsub_topic.dead_letter.id
+    max_delivery_attempts = var.max_delivery_attempts
+  }
+
   expiration_policy {
     ttl = "" # nunca expira por inactividad
   }
@@ -294,7 +300,103 @@ resource "google_pubsub_subscription" "push" {
   depends_on = [
     google_cloud_run_v2_service_iam_member.pusher,
     google_service_account_iam_member.pubsub_token_creator,
+    google_pubsub_topic_iam_member.dead_letter_publisher,
   ]
+}
+
+# --- Alertas ------------------------------------------------------------------
+
+locals {
+  pubsub_agent = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+  channels     = google_monitoring_notification_channel.email[*].id
+}
+
+# Mensajes que agotaron los reintentos. Se guardan 7 días en una suscripción pull
+# para inspeccionarlos o reinyectarlos.
+resource "google_pubsub_topic" "dead_letter" {
+  name       = "${var.name}-markers-dlq"
+  labels     = local.labels
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_pubsub_subscription" "dead_letter" {
+  name                       = "${var.name}-markers-dlq"
+  topic                      = google_pubsub_topic.dead_letter.id
+  labels                     = local.labels
+  message_retention_duration = "604800s"
+  expiration_policy {
+    ttl = ""
+  }
+}
+
+resource "google_pubsub_topic_iam_member" "dead_letter_publisher" {
+  topic  = google_pubsub_topic.dead_letter.id
+  role   = "roles/pubsub.publisher"
+  member = local.pubsub_agent
+}
+
+# Pub/Sub necesita poder confirmar el mensaje original al moverlo a la dead-letter.
+resource "google_pubsub_subscription_iam_member" "dead_letter_ack" {
+  subscription = google_pubsub_subscription.push.name
+  role         = "roles/pubsub.subscriber"
+  member       = local.pubsub_agent
+}
+
+resource "google_monitoring_notification_channel" "email" {
+  count        = var.alert_email == "" ? 0 : 1
+  display_name = "${var.name} alertas"
+  type         = "email"
+  labels       = { email_address = var.alert_email }
+  depends_on   = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "dead_letter" {
+  display_name          = "${var.name}: día sin procesar (dead-letter)"
+  combiner              = "OR"
+  notification_channels = local.channels
+
+  conditions {
+    display_name = "Mensajes en la dead-letter"
+    condition_threshold {
+      filter          = "resource.type = \"pubsub_subscription\" AND resource.labels.subscription_id = \"${google_pubsub_subscription.dead_letter.name}\" AND metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "60s"
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MAX"
+      }
+    }
+  }
+
+  documentation {
+    content = "Un marcador _SUCCESS agotó ${var.max_delivery_attempts} intentos. Revisa los logs de Cloud Run y reinyecta el mensaje desde la suscripción ${google_pubsub_subscription.dead_letter.name}."
+  }
+}
+
+resource "google_monitoring_alert_policy" "errors" {
+  display_name          = "${var.name}: errores 5xx del pipeline"
+  combiner              = "OR"
+  notification_channels = local.channels
+
+  conditions {
+    display_name = "Respuestas 5xx de Cloud Run"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"${google_cloud_run_v2_service.pipeline.name}\" AND metric.type = \"run.googleapis.com/request_count\" AND metric.labels.response_code_class = \"5xx\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_DELTA"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+
+  alert_strategy {
+    auto_close = "86400s"
+  }
 }
 
 # --- FinOps: presupuesto ------------------------------------------------------

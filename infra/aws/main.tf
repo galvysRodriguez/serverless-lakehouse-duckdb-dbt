@@ -213,6 +213,15 @@ resource "aws_lambda_function_event_invoke_config" "pipeline" {
   function_name                = aws_lambda_function.pipeline.function_name
   maximum_retry_attempts       = 2
   maximum_event_age_in_seconds = 21600
+
+  # Tras agotar los reintentos, el evento original y el error van al tema de alertas.
+  destination_config {
+    on_failure {
+      destination = aws_sns_topic.alerts.arn
+    }
+  }
+
+  depends_on = [aws_iam_role_policy.publish_alerts]
 }
 
 # --- Disparador: marcador _SUCCESS en raw -------------------------------------
@@ -235,6 +244,64 @@ resource "aws_s3_bucket_notification" "markers" {
     filter_suffix       = "_SUCCESS"
   }
   depends_on = [aws_lambda_permission.s3]
+}
+
+# --- Alertas ------------------------------------------------------------------
+
+resource "aws_sns_topic" "alerts" {
+  name = "${local.name}-alerts"
+}
+
+resource "aws_sns_topic_subscription" "email" {
+  count     = var.alert_email == "" ? 0 : 1
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email" # AWS envía un correo de confirmación antes de activarla
+  endpoint  = var.alert_email
+}
+
+data "aws_iam_policy_document" "publish_alerts" {
+  statement {
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.alerts.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "publish_alerts" {
+  name   = "publish-alerts"
+  role   = aws_iam_role.lambda.id
+  policy = data.aws_iam_policy_document.publish_alerts.json
+}
+
+# Cubre también invocaciones síncronas (consola, CLI), que no pasan por el destino.
+resource "aws_cloudwatch_metric_alarm" "errors" {
+  alarm_name          = "${local.name}-errors"
+  alarm_description   = "La Lambda del pipeline falló. Revisa /aws/lambda/${local.name}."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  dimensions          = { FunctionName = aws_lambda_function.pipeline.function_name }
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+}
+
+# Aviso temprano: el volumen creció y el build se acerca al límite de 15 minutos.
+resource "aws_cloudwatch_metric_alarm" "duration" {
+  alarm_name          = "${local.name}-duration-near-timeout"
+  alarm_description   = "Una ejecución superó el 80 % del timeout de la Lambda."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Duration"
+  dimensions          = { FunctionName = aws_lambda_function.pipeline.function_name }
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = aws_lambda_function.pipeline.timeout * 1000 * 0.8
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
 }
 
 # --- FinOps: presupuesto ------------------------------------------------------

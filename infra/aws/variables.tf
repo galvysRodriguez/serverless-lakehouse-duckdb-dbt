@@ -75,3 +75,9 @@ variable "lambda_price_per_request" {
   type    = number
   default = 0.0000002
 }
+
+variable "alert_email" {
+  description = "Email suscrito al tema SNS de alertas (fallos, duración, frescura). Vacío = el tema se crea sin suscriptores."
+  type        = string
+  default     = ""
+}

@@ -13,3 +13,7 @@ output "ecr_repository_url" {
 output "function_name" {
   value = aws_lambda_function.pipeline.function_name
 }
+
+output "alerts_topic_arn" {
+  value = aws_sns_topic.alerts.arn
+}

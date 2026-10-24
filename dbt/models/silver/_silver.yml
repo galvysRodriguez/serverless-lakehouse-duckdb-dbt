@@ -1,34 +1,137 @@
 version: 2
 
+# Contrato: interfaz estable para Gold y consumidores. Si el raw cambia de forma,
+# el build falla aquí (tipos o not_null) en vez de propagar datos incorrectos.
+
 models:
   - name: slv_orders
     description: Pedidos limpios, una fila por pedido y día de llegada.
     columns:
       - name: order_id
-        data_tests:
-          - not_null
+        data_type: varchar
+        constraints:
+          - type: not_null
+      - name: customer_id
+        data_type: varchar
+        constraints:
+          - type: not_null
       - name: status
+        data_type: varchar
+        constraints:
+          - type: not_null
         data_tests:
           - accepted_values:
               arguments:
                 values: [placed, shipped, delivered, cancelled]
+      - name: created_at
+        data_type: timestamp
+        constraints:
+          - type: not_null
+      - name: updated_at
+        data_type: timestamp
+        constraints:
+          - type: not_null
+      - name: order_date
+        data_type: date
+      - name: item_count
+        data_type: bigint
       - name: order_total
-        data_tests:
-          - not_null
+        data_type: decimal(12,2)
+        constraints:
+          - type: not_null
+      - name: year
+        data_type: bigint
+      - name: month
+        data_type: bigint
+      - name: day
+        data_type: bigint
 
   - name: slv_order_items
     description: Líneas de pedido (items desanidados de brz_orders).
     columns:
+      - name: order_id
+        data_type: varchar
+        constraints:
+          - type: not_null
+      - name: line_number
+        data_type: integer
+        constraints:
+          - type: not_null
       - name: product_id
-        data_tests:
-          - not_null
+        data_type: varchar
+        constraints:
+          - type: not_null
+      - name: quantity
+        data_type: integer
+        constraints:
+          - type: not_null
+      - name: unit_price
+        data_type: decimal(12,2)
+        constraints:
+          - type: not_null
+      - name: line_total
+        data_type: decimal(12,2)
+      - name: order_date
+        data_type: date
+      - name: updated_at
+        data_type: timestamp
+      - name: year
+        data_type: bigint
+      - name: month
+        data_type: bigint
+      - name: day
+        data_type: bigint
 
   - name: slv_customers
     description: Clientes con email y país normalizados.
     columns:
+      - name: customer_id
+        data_type: varchar
+        constraints:
+          - type: not_null
+      - name: full_name
+        data_type: varchar
       - name: email
-        data_tests:
-          - not_null
+        data_type: varchar
+        constraints:
+          - type: not_null
+      - name: country
+        data_type: varchar
+      - name: created_at
+        data_type: timestamp
+      - name: updated_at
+        data_type: timestamp
+        constraints:
+          - type: not_null
+      - name: year
+        data_type: bigint
+      - name: month
+        data_type: bigint
+      - name: day
+        data_type: bigint
 
   - name: slv_products
     description: Catálogo de productos del día.
+    columns:
+      - name: product_id
+        data_type: varchar
+        constraints:
+          - type: not_null
+      - name: name
+        data_type: varchar
+      - name: category
+        data_type: varchar
+      - name: price
+        data_type: decimal(12,2)
+        constraints:
+          - type: not_null
+      - name: updated_at
+        data_type: timestamp
+        constraints:
+          - type: not_null
+      - name: year
+        data_type: bigint
+      - name: month
+        data_type: bigint
+      - name: day
+        data_type: bigint

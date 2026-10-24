@@ -16,6 +16,7 @@ data "google_project" "current" {}
 resource "google_project_service" "apis" {
   for_each = toset([
     "artifactregistry.googleapis.com",
+    "cloudscheduler.googleapis.com",
     "iam.googleapis.com",
     "monitoring.googleapis.com",
     "pubsub.googleapis.com",
@@ -249,7 +250,7 @@ resource "google_storage_notification" "markers" {
 
 resource "google_service_account" "pusher" {
   account_id   = "${var.name}-pusher"
-  display_name = "Pub/Sub push hacia Cloud Run"
+  display_name = "Invocador de Cloud Run (Pub/Sub push y Cloud Scheduler)"
 }
 
 resource "google_cloud_run_v2_service_iam_member" "pusher" {
@@ -397,6 +398,35 @@ resource "google_monitoring_alert_policy" "errors" {
   alert_strategy {
     auto_close = "86400s"
   }
+}
+
+# --- Frescura: si el productor no entrega, no hay mensaje ni error ------------
+
+# Responde 5xx si falta el marcador o una ejecución exitosa del día anterior, lo
+# que dispara la alerta de errores.
+resource "google_cloud_scheduler_job" "freshness" {
+  name             = "${var.name}-freshness"
+  region           = var.region
+  schedule         = var.freshness_schedule
+  time_zone        = "Etc/UTC"
+  attempt_deadline = "180s"
+
+  retry_config {
+    retry_count = 0
+  }
+
+  http_target {
+    http_method = "POST"
+    uri         = google_cloud_run_v2_service.pipeline.uri
+    body        = base64encode(jsonencode({ check = "freshness" }))
+    headers     = { "Content-Type" = "application/json" }
+    oidc_token {
+      service_account_email = google_service_account.pusher.email
+      audience              = google_cloud_run_v2_service.pipeline.uri
+    }
+  }
+
+  depends_on = [google_project_service.apis, google_cloud_run_v2_service_iam_member.pusher]
 }
 
 # --- FinOps: presupuesto ------------------------------------------------------

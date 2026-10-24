@@ -127,3 +127,41 @@ def test_each_run_is_recorded_in_ops(lake: Settings):
     assert total >= len(DAYS)
     assert ok == total == with_models
     assert min_rows > 0
+
+
+def test_freshness_check(lake: Settings):
+    from lakehouse import freshness
+
+    assert freshness.check(lake, DAYS[-1]) == []
+    problems = freshness.check(lake, DAYS[0] - timedelta(days=1))
+    assert len(problems) == 2  # sin marcador y sin ejecución exitosa
+
+
+def _broken_copy(lake: Settings, tmp_path: Path, edit) -> Settings:
+    """Copia el raw del último día a un lago nuevo y le aplica ``edit`` al feed de pedidos."""
+    broken = _settings(tmp_path / "broken")
+    shutil.copytree(Path(lake.lake_root, "raw"), tmp_path / "broken" / "raw")
+    orders = next((tmp_path / "broken" / "raw" / "ecommerce" / "orders").glob("*/month=10/day=2"))
+    edit(orders / "orders.json")
+    return broken
+
+
+def test_contract_rejects_null_keys(lake: Settings, tmp_path):
+    bad = (
+        '{"order_id":"OBAD","customer_id":null,"status":"placed",'
+        '"created_at":"2026-10-02 10:00:00","updated_at":"2026-10-02 10:00:00","items":[]}\n'
+    )
+    broken = _broken_copy(lake, tmp_path, lambda f: f.write_text(f.read_text() + bad))
+    result = run_dbt(broken, DAYS[-1])
+    assert not result.success
+    assert result.nodes["model.lakehouse.slv_orders"] == "error"
+    # Nada derivado de pedidos llega a Gold (las dimensiones no dependen de slv_orders).
+    for table in ("daily_sales", "customer_monthly", "product_monthly", "customer_ltv"):
+        assert not list(Path(broken.lake_root, "gold").glob(f"{table}*")), table
+
+
+def test_empty_delivery_fails_the_build(lake: Settings, tmp_path):
+    broken = _broken_copy(lake, tmp_path, lambda f: f.write_text(""))
+    result = run_dbt(broken, DAYS[-1])
+    assert not result.success
+    assert result.nodes["test.lakehouse.assert_bronze_orders_not_empty"] == "fail"

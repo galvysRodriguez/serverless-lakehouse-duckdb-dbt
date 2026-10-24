@@ -49,6 +49,7 @@ Otros comandos:
 make generate START=2026-09-01 END=2026-09-30             # rango propio
 make test-unit                                            # sin el test e2e
 .venv/bin/lakehouse report --days 30                      # duración y costo estimado por ejecución
+.venv/bin/lakehouse check-freshness                       # ¿llegó y se procesó ayer?
 make lint
 make smoke                                                # imágenes Lambda/Cloud Run contra un lago local
 make docs                                                 # linaje dbt en localhost:8080
@@ -65,9 +66,22 @@ make docs                                                 # linaje dbt en localh
 | Gold   | `gld_dim_customers`, `gld_dim_products` | Dimensiones SCD1: versión anterior + cambios del día. | archivo completo (pequeño) |
 | Gold   | `gld_customer_ltv`, `gld_product_performance` | Totales históricos sumando los agregados mensuales. | archivo completo (pequeño) |
 
-Tests de dbt: `not_null`/`accepted_values` en Bronze/Silver (solo sobre la partición
-procesada), `unique`/`not_null` en Gold, un test de unicidad por partición y una
-conciliación ingreso diario = suma de líneas.
+## Calidad: contratos, volumen y frescura
+
+- **Contratos** (`contract: enforced`) en todos los modelos de Silver y Gold: nombres y
+  tipos de columnas fijos, y `not_null` en las claves de Silver, que DuckDB aplica al
+  escribir. Si el productor cambia la forma del raw, el build falla en Silver. Bronze
+  guarda el dato tal cual llegó y Gold no se toca.
+- **Volumen**: `assert_bronze_orders_not_empty` falla si un día trae marcador pero no
+  trae pedidos.
+- **Frescura**: si el productor no entrega, no hay evento ni error. Un job diario
+  (EventBridge Scheduler / Cloud Scheduler, 07:00 UTC) llama al pipeline con
+  `{"check": "freshness"}`. Falla si al día anterior le falta el marcador o una
+  ejecución exitosa en `ops/pipeline_runs`, y eso dispara las alertas. En local:
+  `lakehouse check-freshness --date 2026-10-21`.
+- **Tests de dbt**: `accepted_values` y unicidad por partición en Silver (solo la
+  partición procesada); `unique`/`not_null` en Gold; conciliación ingreso diario = suma
+  de líneas en los meses recalculados.
 
 ## Particionamiento e idempotencia
 
@@ -174,6 +188,7 @@ Monitoring; presupuesto opcional.
 | Fallo tras reintentos | Destino `on_failure` de la Lambda → SNS (incluye el evento y el error) | Dead-letter de Pub/Sub tras `max_delivery_attempts` (5) → alerta de Monitoring |
 | Cualquier error | Alarma `Errors ≥ 1` | Alerta por respuestas 5xx de Cloud Run |
 | Cerca del límite de tiempo | Alarma: duración > 80 % del timeout (15 min) | — |
+| Día no entregado o no procesado | Chequeo diario de frescura → error → SNS | Chequeo diario de frescura → 5xx → alerta |
 
 Configura `alert_email` en `terraform.tfvars`. En AWS hay que confirmar la
 suscripción desde el correo que envía SNS. En GCP los mensajes fallidos quedan 7 días
@@ -205,10 +220,10 @@ error permanente, baja `max_delivery_attempts` (GCP) o `maximum_retry_attempts` 
 - **Tiempo máximo**: 15 min en Lambda. En GCP el *ack deadline* de Pub/Sub es de 10 min:
   si un build tarda más, el mensaje se reentrega (es idempotente, pero gasta). Para
   cargas largas conviene Cloud Run Jobs.
-- **Modelos vacíos**: si un día no trae datos, `dbt-duckdb` escribe una fila de NULLs en
-  vez de un archivo vacío. Los modelos intermedios de Gold la descartan
-  (`where <clave> is not null`), pero el pipeline está pensado para dispararse solo
-  cuando hay un marcador.
+- **Días sin datos**: un marcador sin pedidos hace fallar el build a propósito (test
+  de volumen y contrato), porque `dbt-duckdb` escribiría una fila de NULLs en vez de un
+  archivo vacío. Si tu negocio tiene días sin ventas legítimos, desactiva ese test o no
+  escribas el marcador esos días.
 - **Secretos**: el secreto HMAC de GCS queda en el estado de Terraform. Usa un backend
   remoto cifrado (ver `versions.tf`).
 

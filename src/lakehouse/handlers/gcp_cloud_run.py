@@ -15,8 +15,9 @@ import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from lakehouse import freshness
 from lakehouse.config import load_settings
-from lakehouse.events import dates_from_pubsub_push
+from lakehouse.events import dates_from_pubsub_push, is_freshness_check
 from lakehouse.runner import run_dbt
 
 log = logging.getLogger(__name__)
@@ -30,6 +31,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
+            if is_freshness_check(body):
+                self._freshness()
+                return
             dates = dates_from_pubsub_push(body)
         except (ValueError, KeyError) as exc:
             # Un mensaje malformado no mejora reintentando: se confirma y se registra.
@@ -55,6 +59,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._reply(HTTPStatus.INTERNAL_SERVER_ERROR, {"runs": runs})
                 return
         self._reply(HTTPStatus.OK, {"skipped": False, "runs": runs})
+
+    def _freshness(self) -> None:
+        # Llamado por Cloud Scheduler. Un 5xx dispara la alerta de errores de Monitoring.
+        d = freshness.expected_date()
+        problems = freshness.check(load_settings(), d)
+        if problems:
+            log.error("frescura: %s", "; ".join(problems))
+            self._reply(
+                HTTPStatus.INTERNAL_SERVER_ERROR, {"date": d.isoformat(), "problems": problems}
+            )
+        else:
+            self._reply(HTTPStatus.OK, {"freshness": "ok", "date": d.isoformat()})
 
     def _reply(self, status: HTTPStatus, payload: dict) -> None:
         data = json.dumps(payload).encode()

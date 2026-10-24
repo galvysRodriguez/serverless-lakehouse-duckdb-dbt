@@ -40,14 +40,20 @@ models:
     silver:
       +schema: silver
       +tags: ["silver"]
+      +contract:
+        enforced: true
       +options: *partitioned
       +parquet_read_options: *hive_read
 
     gold:
       +schema: gold
       +tags: ["gold"]
+      +contract:
+        enforced: true
       intermediate:
         +materialized: ephemeral
+        +contract:
+          enforced: false
       # Agregados por mes de creación del pedido: cada ejecución reescribe solo los
       # meses afectados (ver affected_months en macros/lake.sql).
       monthly:

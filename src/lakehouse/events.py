@@ -4,6 +4,7 @@ Fuentes soportadas:
 - AWS: notificación S3 ``ObjectCreated`` (directa a Lambda).
 - GCP: notificación GCS -> Pub/Sub push hacia Cloud Run.
 - Ambas: invocación manual o programada con ``{"run_date": "YYYY-MM-DD"}``.
+- Ambas: chequeo de frescura programado con ``{"check": "freshness"}``.
 """
 
 from __future__ import annotations
@@ -44,3 +45,7 @@ def dates_from_pubsub_push(body: dict) -> list[date]:
         name = json.loads(base64.b64decode(message["data"])).get("name")
     d = run_date_from_marker(name or "")
     return [d] if d else []
+
+
+def is_freshness_check(payload: dict) -> bool:
+    return payload.get("check") == "freshness"

@@ -304,6 +304,58 @@ resource "aws_cloudwatch_metric_alarm" "duration" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
 
+# --- Frescura: si el productor no entrega, no hay evento ni error -------------
+
+data "aws_iam_policy_document" "assume_scheduler" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["scheduler.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "scheduler" {
+  name               = "${local.name}-scheduler"
+  assume_role_policy = data.aws_iam_policy_document.assume_scheduler.json
+}
+
+data "aws_iam_policy_document" "invoke_pipeline" {
+  statement {
+    actions   = ["lambda:InvokeFunction"]
+    resources = [aws_lambda_function.pipeline.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "scheduler" {
+  name   = "invoke-pipeline"
+  role   = aws_iam_role.scheduler.id
+  policy = data.aws_iam_policy_document.invoke_pipeline.json
+}
+
+# Falla si falta el marcador o una ejecución exitosa del día anterior; el error
+# llega a SNS por la alarma de errores y el destino de fallos.
+resource "aws_scheduler_schedule" "freshness" {
+  name                         = "${local.name}-freshness"
+  schedule_expression          = var.freshness_schedule
+  schedule_expression_timezone = "UTC"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = aws_lambda_function.pipeline.arn
+    role_arn = aws_iam_role.scheduler.arn
+    input    = jsonencode({ check = "freshness" })
+
+    retry_policy {
+      maximum_retry_attempts = 2
+    }
+  }
+}
+
 # --- FinOps: presupuesto ------------------------------------------------------
 
 # Filtra por la etiqueta `project`; hay que activarla como cost allocation tag en

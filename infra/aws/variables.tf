@@ -81,3 +81,9 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+variable "freshness_schedule" {
+  description = "Cuándo revisar (UTC) que el día anterior llegó y se procesó. Sintaxis de EventBridge Scheduler."
+  type        = string
+  default     = "cron(0 7 * * ? *)"
+}

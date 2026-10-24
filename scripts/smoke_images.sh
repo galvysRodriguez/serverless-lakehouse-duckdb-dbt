@@ -38,9 +38,14 @@ wait_ready() {  # $1 contenedor, $2 texto en logs
   return 1
 }
 
+# El chequeo de frescura revisa "hoy - FRESHNESS_LAG_DAYS"; se ajusta para que apunte
+# al último día generado.
+LAG=$(( ($(date -u +%s) - $(date -u -d 2026-10-21 +%s)) / 86400 ))
+
 echo "== AWS Lambda (${AWS_IMAGE})"
 $DOCKER run -d --name lh-smoke-aws --read-only --tmpfs /tmp \
-  -v "$WORK/aws:/lake:z" -e LAKE_ROOT=/lake -e DBT_TARGET=local "$AWS_IMAGE" >/dev/null
+  -v "$WORK/aws:/lake:z" -e LAKE_ROOT=/lake -e DBT_TARGET=local \
+  -e FRESHNESS_LAG_DAYS="$LAG" "$AWS_IMAGE" >/dev/null
 sleep 2
 $DOCKER exec -i lh-smoke-aws python - <<'PY'
 import json, sys, urllib.request
@@ -54,6 +59,11 @@ for day in (20, 21):
     print(day, out if not runs else [(r["run_date"], r["success"]) for r in runs])
     if not runs or not all(r["success"] for r in runs):
         sys.exit(1)
+req = urllib.request.Request(url, data=json.dumps({"check": "freshness"}).encode())
+out = json.loads(urllib.request.urlopen(req, timeout=120).read())
+print("freshness", out)
+if out.get("freshness") != "ok":
+    sys.exit(1)
 PY
 
 echo "== GCP Cloud Run (${GCP_IMAGE})"
@@ -77,5 +87,6 @@ PY
 
 for image in aws gcp; do
   test -f "$WORK/$image/gold/customer_ltv.parquet" || { echo "$image: falta gold/customer_ltv.parquet" >&2; exit 1; }
+  ls "$WORK/$image"/ops/pipeline_runs/*/*/*/*.parquet >/dev/null || { echo "$image: no registró la ejecución" >&2; exit 1; }
 done
 echo "OK"

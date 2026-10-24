@@ -1,11 +1,33 @@
 version: 2
 
+# Contrato: tipos fijos para BI y consumidores. Las claves se validan con tests
+# (no constraints) para no romper la escritura de modelos vacíos de dbt-duckdb.
+
 models:
   - name: gld_daily_sales
     description: Pedidos, unidades e ingresos por día de creación del pedido. Particionado por year/month.
     columns:
       - name: order_date
-        data_tests: [unique, not_null]
+        data_type: date
+        data_tests:
+          - unique
+          - not_null
+      - name: orders_count
+        data_type: bigint
+      - name: cancelled_count
+        data_type: bigint
+      - name: unique_customers
+        data_type: bigint
+      - name: units_sold
+        data_type: bigint
+      - name: gross_revenue
+        data_type: decimal(14,2)
+      - name: avg_order_value
+        data_type: decimal(12,2)
+      - name: year
+        data_type: bigint
+      - name: month
+        data_type: bigint
 
   - name: gld_customer_monthly
     description: Pedidos e ingresos por cliente y mes (base incremental de gld_customer_ltv).
@@ -13,6 +35,23 @@ models:
       - unique_combination:
           arguments:
             columns: [customer_id, order_month]
+    columns:
+      - name: customer_id
+        data_type: varchar
+      - name: order_month
+        data_type: date
+      - name: first_order_date
+        data_type: date
+      - name: last_order_date
+        data_type: date
+      - name: orders_count
+        data_type: bigint
+      - name: revenue
+        data_type: decimal(14,2)
+      - name: year
+        data_type: bigint
+      - name: month
+        data_type: bigint
 
   - name: gld_product_monthly
     description: Unidades e ingresos por producto y mes (base incremental de gld_product_performance).
@@ -20,25 +59,84 @@ models:
       - unique_combination:
           arguments:
             columns: [product_id, order_month]
+    columns:
+      - name: product_id
+        data_type: varchar
+      - name: order_month
+        data_type: date
+      - name: orders_count
+        data_type: bigint
+      - name: units_sold
+        data_type: bigint
+      - name: revenue
+        data_type: decimal(14,2)
+      - name: year
+        data_type: bigint
+      - name: month
+        data_type: bigint
 
   - name: gld_dim_customers
     description: Dimensión de clientes con la última versión de cada uno (SCD tipo 1).
     columns:
       - name: customer_id
-        data_tests: [unique, not_null]
+        data_type: varchar
+        data_tests:
+          - unique
+          - not_null
+      - name: full_name
+        data_type: varchar
+      - name: email
+        data_type: varchar
+      - name: country
+        data_type: varchar
+      - name: created_at
+        data_type: timestamp
+      - name: updated_at
+        data_type: timestamp
 
   - name: gld_dim_products
     description: Dimensión de productos con el último precio y categoría.
     columns:
       - name: product_id
-        data_tests: [unique, not_null]
+        data_type: varchar
+        data_tests:
+          - unique
+          - not_null
+      - name: name
+        data_type: varchar
+      - name: category
+        data_type: varchar
+      - name: price
+        data_type: decimal(12,2)
+      - name: updated_at
+        data_type: timestamp
 
   - name: gld_customer_ltv
     description: Valor de vida (LTV) y segmento de cada cliente con al menos un pedido no cancelado.
     columns:
       - name: customer_id
-        data_tests: [unique, not_null]
+        data_type: varchar
+        data_tests:
+          - unique
+          - not_null
+      - name: full_name
+        data_type: varchar
+      - name: email
+        data_type: varchar
+      - name: country
+        data_type: varchar
+      - name: first_order_date
+        data_type: date
+      - name: last_order_date
+        data_type: date
+      - name: orders_count
+        data_type: bigint
+      - name: lifetime_revenue
+        data_type: decimal(14,2)
+      - name: avg_order_value
+        data_type: decimal(12,2)
       - name: segment
+        data_type: varchar
         data_tests:
           - accepted_values:
               arguments:
@@ -48,4 +146,21 @@ models:
     description: Unidades vendidas, ingresos y ranking por producto.
     columns:
       - name: product_id
-        data_tests: [unique, not_null]
+        data_type: varchar
+        data_tests:
+          - unique
+          - not_null
+      - name: name
+        data_type: varchar
+      - name: category
+        data_type: varchar
+      - name: current_price
+        data_type: decimal(12,2)
+      - name: orders_count
+        data_type: bigint
+      - name: units_sold
+        data_type: bigint
+      - name: revenue
+        data_type: decimal(14,2)
+      - name: revenue_rank
+        data_type: bigint

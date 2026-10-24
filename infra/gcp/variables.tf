@@ -81,3 +81,9 @@ variable "max_delivery_attempts" {
   type        = number
   default     = 5
 }
+
+variable "freshness_schedule" {
+  description = "Cuándo revisar (UTC, cron) que el día anterior llegó y se procesó."
+  type        = string
+  default     = "0 7 * * *"
+}

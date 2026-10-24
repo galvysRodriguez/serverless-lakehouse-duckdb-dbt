@@ -7,6 +7,7 @@ import logging
 import sys
 from datetime import date, timedelta
 
+from lakehouse import freshness
 from lakehouse.config import load_settings
 from lakehouse.generate import generate_day
 from lakehouse.metrics import report
@@ -46,6 +47,11 @@ def main(argv: list[str] | None = None) -> int:
     rep = sub.add_parser("report", help="resumen de duración y costo estimado de las ejecuciones")
     rep.add_argument("--days", type=int, default=30)
 
+    fresh = sub.add_parser(
+        "check-freshness", help="falla si el día esperado no llegó o no se procesó"
+    )
+    fresh.add_argument("--date", type=_date, help="día a revisar (por defecto ayer UTC)")
+
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", force=True)
     settings = load_settings()
@@ -55,6 +61,14 @@ def main(argv: list[str] | None = None) -> int:
             counts = generate_day(settings, d)
             print(f"{d}: {counts}")
         return 0
+
+    if args.command == "check-freshness":
+        d = args.date or freshness.expected_date()
+        problems = freshness.check(settings, d)
+        for p in problems:
+            print(p, file=sys.stderr)
+        print(f"{d}: OK" if not problems else f"{d}: {len(problems)} problema(s)")
+        return 1 if problems else 0
 
     if args.command == "report":
         print(report(settings, args.days))

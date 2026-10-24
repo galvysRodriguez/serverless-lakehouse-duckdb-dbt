@@ -43,3 +43,10 @@ def test_pubsub_push_from_attributes_or_data():
     assert dates_from_pubsub_push(by_attr) == [D]
     assert dates_from_pubsub_push(by_data) == [D]
     assert dates_from_pubsub_push({"message": {"attributes": {"objectId": "gold/x"}}}) == []
+
+
+def test_freshness_check_payload():
+    from lakehouse.events import is_freshness_check
+
+    assert is_freshness_check({"check": "freshness"})
+    assert not is_freshness_check({"run_date": "2026-10-03"})

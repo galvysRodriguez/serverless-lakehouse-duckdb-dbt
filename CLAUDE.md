@@ -13,12 +13,13 @@ make test                         # all pytest (includes e2e that runs dbt; ~20s
 make test-unit                    # pytest -m "not e2e"
 .venv/bin/pytest tests/test_events.py::test_only_markers_trigger_a_run   # single test
 make lint / make format           # ruff (line length 100)
+make smoke DOCKER=podman          # build both images (amd64) + scripts/smoke_images.sh
 .venv/bin/lakehouse run --date 2026-10-21 --select tag:gold
 ```
 
 Run raw dbt from `dbt/` with `--profiles-dir .` and `LAKE_ROOT` set. Prefer `lakehouse run`, which sets the vars, target and work dirs the same way the handlers do.
 
-Terraform isn't installed locally. Validate with `podman run --rm -v $PWD/infra/aws:/w:Z -w /w docker.io/hashicorp/terraform:1.9.8 validate` after `init -backend=false`.
+CI (`.github/workflows/ci.yml`) runs lint, pytest, terraform fmt/validate for both clouds, and the image smoke test. Terraform isn't installed locally. Validate with `podman run --rm -v $PWD/infra/aws:/w:Z -w /w docker.io/hashicorp/terraform:1.9.8 validate` after `init -backend=false`.
 
 ## Architecture
 

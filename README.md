@@ -48,6 +48,7 @@ Otros comandos:
 make generate START=2026-09-01 END=2026-09-30             # rango propio
 make test-unit                                            # sin el test e2e
 make lint
+make smoke                                                # imágenes Lambda/Cloud Run contra un lago local
 make docs                                                 # linaje dbt en localhost:8080
 ```
 
@@ -149,6 +150,16 @@ HMAC en Secret Manager para que DuckDB acceda a GCS; presupuesto opcional.
 - **Secretos**: el secreto HMAC de GCS queda en el estado de Terraform. Usa un backend
   remoto cifrado (ver `versions.tf`).
 
+## CI
+
+`.github/workflows/ci.yml` corre en cada push a `main` y en cada PR:
+
+- `ruff` y `pytest` (incluido el pipeline de punta a punta).
+- `terraform fmt -check` y `terraform validate` para AWS y GCP.
+- Build de la imagen Lambda en arm64 (la de producción).
+- Build de ambas imágenes en amd64 y `scripts/smoke_images.sh`: invoca la Lambda por
+  su emulador y le envía a Cloud Run un mensaje Pub/Sub simulado.
+
 ## Estructura
 
 ```
@@ -157,5 +168,6 @@ dbt/                  proyecto dbt (profiles.yml incluido, targets local/aws/gcp
   macros/lake.sql     rutas del lago, filtro de partición, deduplicación
 infra/aws, infra/gcp  Terraform por nube
 tests/                pytest (eventos/particiones + e2e contra un lago temporal)
+scripts/              prueba de humo de las imágenes
 Dockerfile            targets `aws` (Lambda) y `gcp` (Cloud Run)
 ```

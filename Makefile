@@ -12,7 +12,7 @@ AWS_PLATFORM ?= linux/arm64
 GCP_PLATFORM ?= linux/amd64
 TAG          ?= latest
 
-.PHONY: install generate run lint format test test-unit docs clean \
+.PHONY: install generate run lint format test test-unit docs clean smoke \
         image-aws image-gcp aws-bootstrap aws-push aws-deploy gcp-bootstrap gcp-push gcp-deploy
 
 install:
@@ -50,6 +50,11 @@ image-aws:
 
 image-gcp:
 	$(DOCKER) build --target gcp --platform $(GCP_PLATFORM) -t lakehouse:gcp .
+
+smoke:  ## construye ambas imágenes en amd64 y las dispara contra un lago local
+	$(MAKE) image-aws AWS_PLATFORM=linux/amd64
+	$(MAKE) image-gcp
+	DOCKER=$(DOCKER) PYTHON=$(BIN)/python scripts/smoke_images.sh
 
 # --- AWS (requiere AWS CLI con credenciales) ----------------------------------
 AWS_REGION ?= us-east-1

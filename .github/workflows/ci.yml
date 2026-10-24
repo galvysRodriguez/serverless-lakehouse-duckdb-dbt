@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Lint y tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: make install PYTHON=python
+      - run: make lint
+      - run: make test
+
+  terraform:
+    name: Terraform (${{ matrix.cloud }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cloud: [aws, gcp]
+    defaults:
+      run:
+        working-directory: infra/${{ matrix.cloud }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - run: terraform fmt -check -diff
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+
+  images:
+    name: Imágenes + prueba de humo
+    runs-on: ubuntu-latest
+    needs: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: make install PYTHON=python
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # Imagen de producción de Lambda (arm64): solo se construye, bajo emulación.
+      - name: Build aws (arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: aws
+          platforms: linux/arm64
+          tags: lakehouse:aws-arm64
+          cache-from: type=gha,scope=aws-arm64
+          cache-to: type=gha,mode=max,scope=aws-arm64
+
+      # Mismo target en amd64 para poder ejecutarlo en el runner.
+      - name: Build aws (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: aws
+          platforms: linux/amd64
+          load: true
+          tags: lakehouse:aws
+          cache-from: type=gha,scope=aws-amd64
+          cache-to: type=gha,mode=max,scope=aws-amd64
+
+      - name: Build gcp (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: gcp
+          platforms: linux/amd64
+          load: true
+          tags: lakehouse:gcp
+          cache-from: type=gha,scope=gcp
+          cache-to: type=gha,mode=max,scope=gcp
+
+      - run: scripts/smoke_images.sh

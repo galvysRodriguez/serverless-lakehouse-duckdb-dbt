@@ -90,3 +90,62 @@
   {%- endif -%}
   select 1
 {%- endmacro %}
+
+{#- ---------------------------------------------------------------------------
+    Gold incremental por mes.
+
+    Un día de datos solo puede cambiar los meses de creación de los pedidos que
+    llegaron ese día (altas y cambios de estado). Gold recalcula esos meses y deja
+    el resto de particiones intactas.
+--------------------------------------------------------------------------- -#}
+
+{#- Lista de (año, mes) a recalcular. Siempre incluye el mes de run_date, así un día
+    sin pedidos no produce un modelo vacío. Con full_scan devuelve none (= todos). -#}
+{% macro affected_months(orders_relation) -%}
+  {%- if var('full_scan') -%}
+    {{- return(none) -}}
+  {%- endif -%}
+  {%- set d = run_date() -%}
+  {%- set months = [(d.year, d.month)] -%}
+  {%- if execute -%}
+    {%- set result = run_query(
+          "select distinct year(order_date), month(order_date) from " ~ orders_relation
+          ~ " where order_id is not null and " ~ partition_filter()) -%}
+    {%- for row in result.rows -%}
+      {%- if (row[0], row[1]) not in months -%}
+        {%- do months.append((row[0], row[1])) -%}
+      {%- endif -%}
+    {%- endfor -%}
+  {%- endif -%}
+  {{- return(months | sort) -}}
+{%- endmacro %}
+
+{#- Particiones de silver que pueden tener versiones de pedidos creados en esos meses:
+    todo lo que llegó desde el primer día del mes más antiguo (las versiones siempre
+    llegan después de la creación). DuckDB poda el resto de archivos. -#}
+{% macro arrival_window(months) -%}
+  {%- if months is none -%}
+    true
+  {%- else -%}
+    {%- set y, m = months[0] -%}
+    (year > {{ y }} or (year = {{ y }} and month >= {{ m }}))
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro in_months(date_column, months) -%}
+  {%- if months is none -%}
+    true
+  {%- else -%}
+    date_trunc('month', {{ date_column }}) in (
+      {%- for y, m in months -%}
+        date '{{ "%04d-%02d-01" % (y, m) }}'{{ ", " if not loop.last }}
+      {%- endfor -%}
+    )
+  {%- endif -%}
+{%- endmacro %}
+
+{#- true si el modelo ya tiene archivos en el lago (el hook on-run-start registró su
+    vista). Permite a una dimensión leer su versión anterior y fusionar solo lo nuevo. -#}
+{% macro self_exists() -%}
+  {{- return(execute and load_relation(this) is not none) -}}
+{%- endmacro %}

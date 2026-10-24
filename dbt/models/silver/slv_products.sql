@@ -9,4 +9,4 @@ select
     day
 from {{ ref('brz_products') }}
 where {{ partition_filter() }}
-{{ latest_by('product_id', 'updated_at desc, _loaded_at desc') }}
+{{ latest_by('product_id, year, month, day', 'updated_at desc, _loaded_at desc') }}

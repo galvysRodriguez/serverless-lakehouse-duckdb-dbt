@@ -2,9 +2,35 @@ version: 2
 
 models:
   - name: gld_daily_sales
-    description: Pedidos, unidades e ingresos por día de creación del pedido.
+    description: Pedidos, unidades e ingresos por día de creación del pedido. Particionado por year/month.
     columns:
       - name: order_date
+        data_tests: [unique, not_null]
+
+  - name: gld_customer_monthly
+    description: Pedidos e ingresos por cliente y mes (base incremental de gld_customer_ltv).
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [customer_id, order_month]
+
+  - name: gld_product_monthly
+    description: Unidades e ingresos por producto y mes (base incremental de gld_product_performance).
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [product_id, order_month]
+
+  - name: gld_dim_customers
+    description: Dimensión de clientes con la última versión de cada uno (SCD tipo 1).
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+  - name: gld_dim_products
+    description: Dimensión de productos con el último precio y categoría.
+    columns:
+      - name: product_id
         data_tests: [unique, not_null]
 
   - name: gld_customer_ltv

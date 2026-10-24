@@ -10,4 +10,4 @@ select
     day
 from {{ ref('brz_customers') }}
 where {{ partition_filter() }}
-{{ latest_by('customer_id', 'updated_at desc, _loaded_at desc') }}
+{{ latest_by('customer_id, year, month, day', 'updated_at desc, _loaded_at desc') }}

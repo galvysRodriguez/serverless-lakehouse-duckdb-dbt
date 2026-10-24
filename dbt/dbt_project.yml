@@ -48,6 +48,14 @@ models:
       +tags: ["gold"]
       intermediate:
         +materialized: ephemeral
+      # Agregados por mes de creación del pedido: cada ejecución reescribe solo los
+      # meses afectados (ver affected_months en macros/lake.sql).
+      monthly:
+        +options:
+          partition_by: "year, month"
+          overwrite_or_ignore: true
+          filename_pattern: "'part_{i}'"
+        +parquet_read_options: *hive_read
 
 data_tests:
   lakehouse:

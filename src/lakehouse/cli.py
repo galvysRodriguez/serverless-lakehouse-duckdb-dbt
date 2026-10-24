@@ -34,6 +34,11 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--end", type=_date, help="fin del rango (inclusive)")
     run.add_argument("--command", default="build", choices=["build", "run", "test"])
     run.add_argument("--select", help="selector de dbt, p. ej. tag:gold")
+    run.add_argument(
+        "--full-scan",
+        action="store_true",
+        help="backfill: reprocesa todas las particiones en una sola ejecución",
+    )
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", force=True)
@@ -44,6 +49,11 @@ def main(argv: list[str] | None = None) -> int:
             counts = generate_day(settings, d)
             print(f"{d}: {counts}")
         return 0
+
+    if args.full_scan:
+        if args.date or args.start or args.end:
+            parser.error("--full-scan no admite fechas: procesa todo el lago")
+        return 0 if run_dbt(settings, None, command=args.command, full_scan=True).success else 1
 
     if args.start or args.end:
         if not (args.start and args.end):

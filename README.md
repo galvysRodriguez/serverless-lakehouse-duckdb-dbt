@@ -20,7 +20,8 @@ El mismo código corre en local, en AWS y en GCP. Solo cambian `LAKE_ROOT` (carp
                                                               ▼
    bronze/<entidad>/year=/month=/day=/part_0.parquet   (solo la partición del día)
    silver/<entidad>/year=/month=/day=/part_0.parquet   (solo la partición del día)
-   gold/<tabla>.parquet                                (agregados completos)
+   gold/<tabla>/year=/month=/part_0.parquet            (solo los meses afectados)
+   gold/<tabla>.parquet                                (dimensiones y totales)
 ```
 
 ## Inicio rápido (local)
@@ -59,7 +60,9 @@ make docs                                                 # linaje dbt en localh
 | Raw    | (productor) | NDJSON tal como llega. `orders` trae altas **y** cambios de estado de días previos (CDC), con duplicados y ruido intencional. | inmutable |
 | Bronze | `brz_orders`, `brz_customers`, `brz_products` | Lectura tipada del raw del día + `_source_file`, `_loaded_at`. | partición del día |
 | Silver | `slv_orders`, `slv_order_items`, `slv_customers`, `slv_products` | Limpieza (estado/email normalizados), deduplicación dentro del día, desanidado de items. | partición del día |
-| Gold   | `gld_daily_sales`, `gld_customer_ltv`, `gld_product_performance` | Versión vigente de cada pedido (`gold/intermediate/`, efímeros) y agregados de negocio. | archivo completo |
+| Gold   | `gld_daily_sales`, `gld_customer_monthly`, `gld_product_monthly` | Agregados por mes de creación del pedido, con la versión vigente de cada pedido. | solo meses afectados |
+| Gold   | `gld_dim_customers`, `gld_dim_products` | Dimensiones SCD1: versión anterior + cambios del día. | archivo completo (pequeño) |
+| Gold   | `gld_customer_ltv`, `gld_product_performance` | Totales históricos sumando los agregados mensuales. | archivo completo (pequeño) |
 
 Tests de dbt: `not_null`/`accepted_values` en Bronze/Silver (solo sobre la partición
 procesada), `unique`/`not_null` en Gold, un test de unicidad por partición y una
@@ -76,9 +79,31 @@ conciliación ingreso diario = suma de líneas.
   instancia efímera puede procesar cualquier día.
 - Un solo objeto dispara el pipeline: el marcador `_SUCCESS` que el productor escribe
   **después** de subir todos los feeds del día.
-- Backfill de todo el histórico: `--vars '{full_scan: true}'` (lee todo el lago).
+- Backfill de todo el histórico: `lakehouse run --full-scan` (lee todo el lago).
 - Al arrancar, un hook registra vistas sobre los Parquet que ya existen. Por eso
   `--select tag:gold` recalcula Gold a partir de silver sin releer raw ni bronze.
+
+## Gold incremental por mes
+
+Un día de datos solo puede cambiar los meses en que se crearon los pedidos que
+llegaron ese día (altas y cambios de estado). `affected_months()` los calcula
+leyendo la partición de silver del día, y Gold:
+
+1. Lee silver solo desde el primer día del mes afectado más antiguo. DuckDB descarta
+   el resto de archivos por las columnas de partición.
+2. Reescribe solo las particiones `year=/month=` de esos meses en `gld_daily_sales`,
+   `gld_customer_monthly` y `gld_product_monthly`.
+3. Recalcula los totales (`gld_customer_ltv`, `gld_product_performance`) sumando
+   esos agregados mensuales (una fila por cliente o producto y mes), no silver.
+4. Actualiza las dimensiones fusionando su versión anterior con los cambios del día.
+
+El costo diario depende del mes en curso, no del tamaño del histórico. El test
+`test_incremental_gold_equals_full_rebuild` verifica que el resultado sea idéntico
+al de reprocesar todo con `--full-scan`.
+
+Supuesto: los cambios de un pedido llegan siempre después de su creación. Si un
+productor reenvía datos de meses viejos, ese mes se recalcula igual, porque entra en
+`affected_months`; solo se lee más silver.
 
 ## Despliegue
 
@@ -134,11 +159,8 @@ HMAC en Secret Manager para que DuckDB acceda a GCS; presupuesto opcional.
 
 ## Límites conocidos y decisiones
 
-- **Gold se recalcula completo** en cada ejecución a partir de todo silver. Es barato
-  con este volumen, pero crece con el histórico. El siguiente paso natural es
-  materializar Gold de forma incremental por mes.
 - **Un día a la vez**: concurrencia 1 en ambas nubes para que dos ejecuciones no
-  escriban Gold a la vez. En cuentas AWS nuevas (límite de 10) no se puede reservar
+  escriban las mismas particiones de Gold a la vez. En cuentas AWS nuevas (límite de 10) no se puede reservar
   concurrencia: usa `reserved_concurrency = -1`.
 - **Tiempo máximo**: 15 min en Lambda. En GCP el *ack deadline* de Pub/Sub es de 10 min:
   si un build tarda más, el mensaje se reentrega (es idempotente, pero gasta). Para

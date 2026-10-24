@@ -76,6 +76,6 @@ if not post({"message": {"attributes": {"objectId": "gold/x.parquet"}}}).get("sk
 PY
 
 for image in aws gcp; do
-  test -f "$WORK/$image/gold/daily_sales.parquet" || { echo "$image: falta gold/daily_sales.parquet" >&2; exit 1; }
+  test -f "$WORK/$image/gold/customer_ltv.parquet" || { echo "$image: falta gold/customer_ltv.parquet" >&2; exit 1; }
 done
 echo "OK"

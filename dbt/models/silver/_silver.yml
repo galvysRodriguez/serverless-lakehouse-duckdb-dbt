@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: slv_orders
+    description: Pedidos limpios, una fila por pedido y día de llegada.
+    columns:
+      - name: order_id
+        data_tests:
+          - not_null
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [placed, shipped, delivered, cancelled]
+      - name: order_total
+        data_tests:
+          - not_null
+
+  - name: slv_order_items
+    description: Líneas de pedido (items desanidados de brz_orders).
+    columns:
+      - name: product_id
+        data_tests:
+          - not_null
+
+  - name: slv_customers
+    description: Clientes con email y país normalizados.
+    columns:
+      - name: email
+        data_tests:
+          - not_null
+
+  - name: slv_products
+    description: Catálogo de productos del día.

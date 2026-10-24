@@ -1,0 +1,13 @@
+version: 2
+
+models:
+  - name: brz_orders
+    description: Feed raw de pedidos (eventos de alta y cambio de estado), particionado por día de llegada.
+    columns:
+      - name: order_id
+        data_tests:
+          - not_null
+  - name: brz_customers
+    description: Altas y cambios de clientes recibidos cada día.
+  - name: brz_products
+    description: Snapshot diario completo del catálogo.

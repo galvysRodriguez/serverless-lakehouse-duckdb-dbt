@@ -1,0 +1,13 @@
+.venv
+.git
+data
+graphify-out
+dbt/target
+dbt/logs
+dbt/.user.yml
+infra
+tests
+**/__pycache__
+**/*.egg-info
+.ruff_cache
+.pytest_cache

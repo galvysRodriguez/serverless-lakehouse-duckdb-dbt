@@ -1,0 +1,59 @@
+name: lakehouse
+version: "0.1.0"
+config-version: 2
+profile: lakehouse
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+clean-targets: ["target", "logs"]
+
+on-run-start:
+  - "{{ register_existing_external_models() }}"
+
+vars:
+  # Día a procesar (YYYY-MM-DD). Los handlers lo derivan del marcador _SUCCESS;
+  # si se omite se usa la fecha UTC de hoy.
+  run_date: null
+  # true = reprocesa todas las particiones (backfill). Escanea todo el lago: úsalo con cuidado.
+  full_scan: false
+
+models:
+  lakehouse:
+    # Todo modelo se escribe como Parquet en el bucket y DuckDB solo deja una vista
+    # encima. La base DuckDB es efímera (:memory:), el estado vive en S3/GCS.
+    +materialized: external
+
+    bronze:
+      +schema: bronze
+      +tags: ["bronze"]
+      +options: &partitioned
+        partition_by: "year, month, day"
+        # Reescribir un día deja los mismos nombres de archivo (part_0.parquet...),
+        # así reprocesar es idempotente y no toca las demás particiones.
+        overwrite_or_ignore: true
+        filename_pattern: "'part_{i}'"
+      +parquet_read_options: &hive_read
+        hive_partitioning: true
+        union_by_name: true
+
+    silver:
+      +schema: silver
+      +tags: ["silver"]
+      +options: *partitioned
+      +parquet_read_options: *hive_read
+
+    gold:
+      +schema: gold
+      +tags: ["gold"]
+      intermediate:
+        +materialized: ephemeral
+
+data_tests:
+  lakehouse:
+    # Los tests de bronze/silver solo validan la partición procesada: no escanean
+    # el lago completo en cada ejecución.
+    bronze:
+      +where: "__run_partition__"
+    silver:
+      +where: "__run_partition__"

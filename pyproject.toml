@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lakehouse"
+version = "0.1.0"
+description = "Data warehouse serverless: DuckDB + dbt-core sobre S3/GCS con arquitectura medallón"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "dbt-core>=1.10,<2",
+    "dbt-duckdb>=1.9,<2",
+    "duckdb>=1.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+lakehouse = "lakehouse.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lakehouse"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["e2e: corre dbt de punta a punta contra un lago local temporal"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

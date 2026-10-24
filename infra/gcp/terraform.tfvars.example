@@ -1,0 +1,4 @@
+project_id  = "mi-proyecto-gcp"
+region      = "us-central1"
+bucket_name = "mi-empresa-lakehouse-dev"
+# billing_account_id = "000000-000000-000000"

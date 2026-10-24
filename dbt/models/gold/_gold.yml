@@ -1,0 +1,25 @@
+version: 2
+
+models:
+  - name: gld_daily_sales
+    description: Pedidos, unidades e ingresos por día de creación del pedido.
+    columns:
+      - name: order_date
+        data_tests: [unique, not_null]
+
+  - name: gld_customer_ltv
+    description: Valor de vida (LTV) y segmento de cada cliente con al menos un pedido no cancelado.
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: segment
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [vip, regular, ocasional]
+
+  - name: gld_product_performance
+    description: Unidades vendidas, ingresos y ranking por producto.
+    columns:
+      - name: product_id
+        data_tests: [unique, not_null]

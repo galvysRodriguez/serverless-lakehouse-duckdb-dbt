@@ -1,0 +1,43 @@
+lakehouse:
+  target: "{{ env_var('DBT_TARGET', 'local') }}"
+  outputs:
+    # Desarrollo: el "lago" es una carpeta local (LAKE_ROOT, por defecto ./data/lake).
+    local:
+      type: duckdb
+      path: ":memory:"
+      threads: 4
+
+    # AWS Lambda: credenciales del rol de ejecución vía credential_chain.
+    aws:
+      type: duckdb
+      path: ":memory:"
+      threads: 4
+      extensions: [httpfs, aws]
+      config_options:
+        # Extensiones preinstaladas en la imagen: Lambda no tiene red de salida garantizada
+        # ni disco escribible fuera de /tmp.
+        extension_directory: "{{ env_var('DUCKDB_EXTENSION_DIRECTORY', '/opt/duckdb/extensions') }}"
+      settings:
+        memory_limit: "{{ env_var('DUCKDB_MEMORY_LIMIT', '2GB') }}"
+        temp_directory: /tmp/duckdb_spill
+        home_directory: /tmp
+      secrets:
+        - type: s3
+          provider: credential_chain
+          region: "{{ env_var('AWS_REGION', 'us-east-1') }}"
+
+    # GCP Cloud Run: DuckDB accede a GCS por la API compatible con S3 (claves HMAC).
+    gcp:
+      type: duckdb
+      path: ":memory:"
+      threads: 4
+      extensions: [httpfs]
+      config_options:
+        extension_directory: "{{ env_var('DUCKDB_EXTENSION_DIRECTORY', '/opt/duckdb/extensions') }}"
+      settings:
+        memory_limit: "{{ env_var('DUCKDB_MEMORY_LIMIT', '3GB') }}"
+        temp_directory: /tmp/duckdb_spill
+      secrets:
+        - type: gcs
+          key_id: "{{ env_var('GCS_HMAC_KEY_ID', '') }}"
+          secret: "{{ env_var('GCS_HMAC_SECRET', '') }}"

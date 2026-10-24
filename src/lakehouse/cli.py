@@ -9,6 +9,7 @@ from datetime import date, timedelta
 
 from lakehouse.config import load_settings
 from lakehouse.generate import generate_day
+from lakehouse.metrics import report
 from lakehouse.runner import run_dbt
 
 
@@ -32,13 +33,18 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--date", type=_date, help="día a procesar (por defecto hoy UTC)")
     run.add_argument("--start", type=_date, help="inicio de un rango a procesar día por día")
     run.add_argument("--end", type=_date, help="fin del rango (inclusive)")
-    run.add_argument("--command", default="build", choices=["build", "run", "test"])
+    run.add_argument(
+        "--command", dest="dbt_command", default="build", choices=["build", "run", "test"]
+    )
     run.add_argument("--select", help="selector de dbt, p. ej. tag:gold")
     run.add_argument(
         "--full-scan",
         action="store_true",
         help="backfill: reprocesa todas las particiones en una sola ejecución",
     )
+
+    rep = sub.add_parser("report", help="resumen de duración y costo estimado de las ejecuciones")
+    rep.add_argument("--days", type=int, default=30)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", force=True)
@@ -50,10 +56,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{d}: {counts}")
         return 0
 
+    if args.command == "report":
+        print(report(settings, args.days))
+        return 0
+
     if args.full_scan:
         if args.date or args.start or args.end:
             parser.error("--full-scan no admite fechas: procesa todo el lago")
-        return 0 if run_dbt(settings, None, command=args.command, full_scan=True).success else 1
+        return 0 if run_dbt(settings, None, command=args.dbt_command, full_scan=True).success else 1
 
     if args.start or args.end:
         if not (args.start and args.end):
@@ -64,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Un día por invocación, igual que en la nube: cada ejecución lee solo su partición.
     for d in dates:
-        result = run_dbt(settings, d, command=args.command, select=args.select)
+        result = run_dbt(settings, d, command=args.dbt_command, select=args.select)
         if not result.success:
             return 1
     return 0

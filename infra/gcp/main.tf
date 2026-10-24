@@ -4,7 +4,11 @@ locals {
     managed_by = "terraform"
   }
   marker_prefix = "raw/ecommerce/_markers/"
-  image_repo    = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}/lakehouse"
+  cost_per_second = (
+    tonumber(var.cpu) * var.price_per_vcpu_second
+    + tonumber(trimsuffix(var.memory, "Gi")) * var.price_per_gib_second
+  )
+  image_repo = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}/lakehouse"
 }
 
 data "google_project" "current" {}
@@ -176,6 +180,15 @@ resource "google_cloud_run_v2_service" "pipeline" {
       env {
         name  = "DUCKDB_MEMORY_LIMIT"
         value = var.duckdb_memory_limit
+      }
+      # Estimación de costo por ejecución (ver src/lakehouse/metrics.py).
+      env {
+        name  = "LAKEHOUSE_COST_PER_SECOND"
+        value = format("%.10f", local.cost_per_second)
+      }
+      env {
+        name  = "LAKEHOUSE_COST_PER_RUN"
+        value = format("%.10f", var.price_per_request)
       }
       env {
         name = "GCS_HMAC_KEY_ID"

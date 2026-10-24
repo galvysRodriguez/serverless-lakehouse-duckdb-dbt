@@ -116,3 +116,14 @@ def test_incremental_gold_equals_full_rebuild(lake: Settings, tmp_path):
         missing = _one(f"select count(*) from (({inc_sql}) except all ({full_sql}))")[0]
         extra = _one(f"select count(*) from (({full_sql}) except all ({inc_sql}))")[0]
         assert (missing, extra) == (0, 0), table
+
+
+def test_each_run_is_recorded_in_ops(lake: Settings):
+    runs = f"{lake.lake_root}/ops/pipeline_runs/*/*/*/*.parquet"
+    total, ok, min_rows, with_models = _one(
+        f"select count(*), count(*) filter (where success), min(silver_rows), "
+        f"count(*) filter (where len(models) > 0) from '{runs}' where not full_scan"
+    )
+    assert total >= len(DAYS)
+    assert ok == total == with_models
+    assert min_rows > 0

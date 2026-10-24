@@ -61,3 +61,17 @@ variable "cost_center" {
   type    = string
   default = "data"
 }
+
+variable "lambda_price_per_gb_second" {
+  description = "Precio de lista de Lambda por GB-segundo, para estimar el costo de cada ejecución en ops/pipeline_runs. Verifícalo para tu región."
+  type        = map(number)
+  default = {
+    arm64  = 0.0000133334
+    x86_64 = 0.0000166667
+  }
+}
+
+variable "lambda_price_per_request" {
+  type    = number
+  default = 0.0000002
+}

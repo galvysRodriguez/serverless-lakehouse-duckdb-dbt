@@ -15,6 +15,8 @@ make test-unit                    # pytest -m "not e2e"
 make lint / make format           # ruff (line length 100)
 make smoke DOCKER=podman          # build both images (amd64) + scripts/smoke_images.sh
 .venv/bin/lakehouse run --date 2026-10-21 --select tag:gold
+.venv/bin/lakehouse run --full-scan      # backfill everything in one run
+.venv/bin/lakehouse report --days 30     # cost/duration summary from ops/pipeline_runs
 ```
 
 Run raw dbt from `dbt/` with `--profiles-dir .` and `LAKE_ROOT` set. Prefer `lakehouse run`, which sets the vars, target and work dirs the same way the handlers do.
@@ -30,6 +32,7 @@ CI (`.github/workflows/ci.yml`) runs lint, pytest, terraform fmt/validate for bo
 - **Order versions.** Raw orders reappear on later days with a new status. Silver keeps one row per key *per day partition*. Its `latest_by` keys include `year, month, day`, so `full_scan` backfills keep per-day semantics.
 - **Incremental Gold.** `affected_months(ref('slv_orders'))` runs a query at compile time: the order months touched by today's silver partition, plus run_date's month. `int_*_current` (ephemeral) read silver only from `arrival_window(months)` and keep orders `in_months(...)`. `models/gold/monthly/*` are partitioned by `year, month` and only rewrite those months. `gld_customer_ltv`/`gld_product_performance` are full rewrites over the monthly aggregates. `gld_dim_*` are SCD1 merges of `{{ this }}` (when `self_exists()`) with today's changes. Any new Gold model must keep `test_incremental_gold_equals_full_rebuild` passing (incremental day-by-day == `--full-scan`).
 - **Tests on bronze/silver** get `where: "__run_partition__"` from `dbt_project.yml`. The overridden `get_where_subquery` macro expands it. Generic-test `where` configs can't call project macros directly.
+- **Run metrics.** `run_dbt` records every full `build` (no `--select`) via `metrics.record_run` to `ops/pipeline_runs/…/<run_id>.parquet`, with an explicit schema (`_COLUMNS`) so files stay union-readable. Recording must never fail the pipeline; it logs and returns None. Cost = duration × `LAKEHOUSE_COST_PER_SECOND` (computed in Terraform from list prices). The `ops/` prefix must stay writable in IAM.
 - **Trigger** is only `raw/ecommerce/_markers/year=…/month=…/day=…/_SUCCESS` (`partitions.run_date_from_marker`). Both clouds filter by that prefix at the source. Concurrency is 1 by design (Gold is fully rewritten each run).
 
 ## Gotchas

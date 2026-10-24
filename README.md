@@ -48,6 +48,7 @@ Otros comandos:
 .venv/bin/lakehouse run --date 2026-10-21 --select tag:gold
 make generate START=2026-09-01 END=2026-09-30             # rango propio
 make test-unit                                            # sin el test e2e
+.venv/bin/lakehouse report --days 30                      # duración y costo estimado por ejecución
 make lint
 make smoke                                                # imágenes Lambda/Cloud Run contra un lago local
 make docs                                                 # linaje dbt en localhost:8080
@@ -104,6 +105,29 @@ al de reprocesar todo con `--full-scan`.
 Supuesto: los cambios de un pedido llegan siempre después de su creación. Si un
 productor reenvía datos de meses viejos, ese mes se recalcula igual, porque entra en
 `affected_months`; solo se lee más silver.
+
+## Costo por ejecución
+
+Cada `dbt build` completo deja una fila en
+`ops/pipeline_runs/year=/month=/day=/<run_id>.parquet` (append-only) con:
+
+- duración y resultado, y tiempo de cada modelo y test;
+- bytes de raw leídos, filas de bronze/silver y bytes Parquet escritos en el día;
+- `est_cost_usd`: duración × precio por segundo de la configuración desplegada.
+
+Terraform calcula ese precio desde la memoria/CPU configurada y precios de lista
+(variables `lambda_price_per_gb_second` y `price_per_*`, que conviene verificar para tu
+región) y lo pasa como `LAKEHOUSE_COST_PER_SECOND`. Es una estimación de cómputo:
+no incluye almacenamiento, requests a S3/GCS, el arranque en frío ni la capa
+gratuita. En local queda vacío.
+
+```bash
+LAKE_ROOT=s3://mi-bucket .venv/bin/lakehouse report --days 30
+```
+
+Muestra el resumen (ejecuciones, fallidas, duración, costo y proyección mensual),
+el detalle por día de datos y los modelos más lentos. La tabla se puede consultar
+directo con DuckDB o con cualquier herramienta que lea Parquet.
 
 ## Despliegue
 
@@ -185,7 +209,7 @@ HMAC en Secret Manager para que DuckDB acceda a GCS; presupuesto opcional.
 ## Estructura
 
 ```
-src/lakehouse/        CLI, generador, runner de dbt y handlers (aws_lambda, gcp_cloud_run)
+src/lakehouse/        CLI, generador, runner de dbt, métricas y handlers (aws_lambda, gcp_cloud_run)
 dbt/                  proyecto dbt (profiles.yml incluido, targets local/aws/gcp)
   macros/lake.sql     rutas del lago, filtro de partición, deduplicación
 infra/aws, infra/gcp  Terraform por nube

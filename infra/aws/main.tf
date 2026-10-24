@@ -9,6 +9,7 @@ locals {
   # S3 cobra cada objeto en STANDARD_IA / GLACIER_IR como mínimo 128 KB: mover
   # archivos chicos de partición encarece en vez de ahorrar.
   min_tiering_size = 131072
+  cost_per_second  = var.lambda_memory_mb / 1024 * var.lambda_price_per_gb_second[var.lambda_architecture]
 }
 
 data "aws_caller_identity" "current" {}
@@ -156,6 +157,7 @@ data "aws_iam_policy_document" "lake" {
       "${aws_s3_bucket.lake.arn}/bronze/*",
       "${aws_s3_bucket.lake.arn}/silver/*",
       "${aws_s3_bucket.lake.arn}/gold/*",
+      "${aws_s3_bucket.lake.arn}/ops/*",
     ]
   }
 }
@@ -193,6 +195,9 @@ resource "aws_lambda_function" "pipeline" {
       LAKE_ROOT           = "s3://${aws_s3_bucket.lake.bucket}"
       DBT_TARGET          = "aws"
       DUCKDB_MEMORY_LIMIT = "${floor(var.lambda_memory_mb * 0.75)}MB"
+      # Estimación de costo por ejecución (ver src/lakehouse/metrics.py).
+      LAKEHOUSE_COST_PER_SECOND = format("%.10f", local.cost_per_second)
+      LAKEHOUSE_COST_PER_RUN    = format("%.10f", var.lambda_price_per_request)
     }
   }
 

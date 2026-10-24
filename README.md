@@ -1,5 +1,27 @@
 # Lakehouse serverless: DuckDB + dbt-core sobre S3/GCS
 
+[![CI](https://github.com/galvysRodriguez/serverless-lakehouse-duckdb-dbt/actions/workflows/ci.yml/badge.svg)](https://github.com/galvysRodriguez/serverless-lakehouse-duckdb-dbt/actions/workflows/ci.yml)
+[![Pages](https://github.com/galvysRodriguez/serverless-lakehouse-duckdb-dbt/actions/workflows/pages.yml/badge.svg)](https://galvysrodriguez.github.io/serverless-lakehouse-duckdb-dbt/)
+![Python](https://img.shields.io/badge/python-3.11%2B-3776ab)
+![dbt](https://img.shields.io/badge/dbt--core-1.10%2B-ff694b)
+![DuckDB](https://img.shields.io/badge/DuckDB-Parquet-fff000)
+![Terraform](https://img.shields.io/badge/Terraform-AWS%20%7C%20GCP-7b42bc)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+**Español** · [English](README.en.md) ·
+[**Demo en vivo**](https://galvysrodriguez.github.io/serverless-lakehouse-duckdb-dbt/) ·
+[Linaje dbt](https://galvysrodriguez.github.io/serverless-lakehouse-duckdb-dbt/dbt/)
+
+> **TL;DR.** Un data warehouse que no paga por estar encendido. Los datos viven como
+> Parquet en S3/GCS, cada día de datos dispara una Lambda (o Cloud Run) que corre
+> `dbt build` con DuckDB en memoria y se apaga. Cada ejecución lee solo la partición
+> del día y Gold recalcula solo los meses afectados. Un test verifica que ese
+> resultado incremental sea idéntico a reprocesar todo. Cada ejecución registra su
+> duración y su costo estimado, y un chequeo diario alerta si un día no llegó.
+> Mismo código en local, AWS y GCP, con Terraform para ambas nubes.
+
+![Arquitectura](docs/architecture.svg)
+
 Data warehouse sin servidores siempre encendidos: los datos viven como Parquet en
 almacenamiento de objetos, **DuckDB** los procesa en memoria y **dbt-core**
 (`dbt-duckdb`) define las capas **Bronze → Silver → Gold**. El cómputo corre en
@@ -7,6 +29,9 @@ almacenamiento de objetos, **DuckDB** los procesa en memoria y **dbt-core**
 
 El mismo código corre en local, en AWS y en GCP. Solo cambian `LAKE_ROOT` (carpeta,
 `s3://` o `gs://`) y `DBT_TARGET` (`local`, `aws`, `gcp`).
+
+<details>
+<summary>Flujo de rutas en el bucket</summary>
 
 ```
  productor ──► raw/ecommerce/<entidad>/year=/month=/day=/*.json
@@ -24,6 +49,21 @@ El mismo código corre en local, en AWS y en GCP. Solo cambian `LAKE_ROOT` (carp
    gold/<tabla>.parquet                                (dimensiones y totales)
 ```
 
+</details>
+
+## Demo
+
+[galvysrodriguez.github.io/serverless-lakehouse-duckdb-dbt](https://galvysrodriguez.github.io/serverless-lakehouse-duckdb-dbt/) es un
+sitio estático que `.github/workflows/pages.yml` regenera en cada push a `main`:
+
+- **Dashboard**: descarga los Parquet de Gold y `ops/pipeline_runs` y los consulta en
+  el navegador con DuckDB-WASM, sin backend. Muestra ventas y también lo que cuesta
+  producirlas: duración de cada ejecución diaria y costo estimado con precios de Lambda.
+- **Documentación de dbt** (`/dbt/`): modelos, columnas con sus contratos, tests y linaje.
+
+Los datos son sintéticos: el workflow genera ~2 meses, corre el pipeline día por día
+como lo harían los eventos y publica el resultado. En local: `make site-serve`.
+
 ## Inicio rápido (local)
 
 Requiere Python ≥ 3.11.
@@ -38,7 +78,7 @@ make test            # pytest: unitarios + pipeline de punta a punta
 Consultar el resultado con DuckDB:
 
 ```bash
-.venv/bin/python -c "import duckdb; print(duckdb.sql(\"from 'data/lake/gold/daily_sales.parquet'\"))"
+.venv/bin/python -c "import duckdb; print(duckdb.sql(\"from 'data/lake/gold/customer_ltv.parquet'\"))"
 ```
 
 Otros comandos:
@@ -53,6 +93,7 @@ make test-unit                                            # sin el test e2e
 make lint
 make smoke                                                # imágenes Lambda/Cloud Run contra un lago local
 make docs                                                 # linaje dbt en localhost:8080
+make site-serve                                           # dashboard + dbt docs en localhost:8000
 ```
 
 ## Capas
@@ -237,6 +278,9 @@ error permanente, baja `max_delivery_attempts` (GCP) o `maximum_retry_attempts` 
 - Build de ambas imágenes en amd64 y `scripts/smoke_images.sh`: invoca la Lambda por
   su emulador y le envía a Cloud Run un mensaje Pub/Sub simulado.
 
+`.github/workflows/pages.yml` publica la demo en GitHub Pages (requiere
+*Settings → Pages → Source: GitHub Actions*).
+
 ## Estructura
 
 ```
@@ -245,6 +289,12 @@ dbt/                  proyecto dbt (profiles.yml incluido, targets local/aws/gcp
   macros/lake.sql     rutas del lago, filtro de partición, deduplicación
 infra/aws, infra/gcp  Terraform por nube
 tests/                pytest (eventos/particiones + e2e contra un lago temporal)
-scripts/              prueba de humo de las imágenes
+scripts/              prueba de humo de las imágenes y export de datos del sitio
+site/index.html       dashboard estático (DuckDB-WASM)
+docs/                 diagrama de arquitectura
 Dockerfile            targets `aws` (Lambda) y `gcp` (Cloud Run)
 ```
+
+## Licencia
+
+[MIT](LICENSE)

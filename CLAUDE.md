@@ -14,6 +14,7 @@ make test-unit                    # pytest -m "not e2e"
 .venv/bin/pytest tests/test_events.py::test_only_markers_trigger_a_run   # single test
 make lint / make format           # ruff (line length 100)
 make smoke DOCKER=podman          # build both images (amd64) + scripts/smoke_images.sh
+make site-serve                   # dashboard (DuckDB-WASM) + static dbt docs in site/, on :8000
 .venv/bin/lakehouse run --date 2026-10-21 --select tag:gold
 .venv/bin/lakehouse run --full-scan      # backfill everything in one run
 .venv/bin/lakehouse report --days 30     # cost/duration summary from ops/pipeline_runs

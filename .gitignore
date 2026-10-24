@@ -8,6 +8,10 @@ __pycache__/
 # Lago local generado por `make generate` / `make run`
 data/
 
+# Generado por `make site`
+site/data/
+site/dbt/
+
 # dbt
 dbt/target/
 dbt/logs/

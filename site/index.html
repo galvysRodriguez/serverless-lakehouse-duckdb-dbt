@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lakehouse serverless · demo</title>
+<meta name="description" content="Gold del lakehouse consultado en el navegador con DuckDB-WASM, directo sobre Parquet.">
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --series-1: #2a78d6;
+    --series-1-wash: rgba(42, 120, 214, 0.10);
+    --critical: #d03b3b;
+    --code-bg: #f0efec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --text-primary: #f0efec;
+      --text-secondary: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --series-1: #3987e5;
+      --series-1-wash: rgba(57, 135, 229, 0.12);
+      --code-bg: #262624;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --series-1-wash: rgba(57, 135, 229, 0.12);
+    --code-bg: #262624;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 64px; }
+  header h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--text-secondary); max-width: 70ch; }
+  nav { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 14px; }
+  a { color: var(--series-1); }
+  h2 { font-size: 18px; margin: 40px 0 4px; }
+  .lede { color: var(--text-secondary); margin: 0 0 16px; max-width: 75ch; }
+  #status { margin-top: 20px; color: var(--muted); }
+  #status.error { color: var(--critical); }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .tile, .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .tile { padding: 14px 16px; }
+  .tile .label { color: var(--text-secondary); font-size: 13px; }
+  .tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .tile .hint { color: var(--muted); font-size: 12px; }
+
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+  .card { padding: 16px; margin-top: 12px; min-width: 0; }
+  .card h3 { font-size: 15px; margin: 0; }
+  .card .sub { color: var(--text-secondary); font-size: 13px; margin: 2px 0 8px; }
+  .chart { position: relative; width: 100%; }
+  .chart svg { display: block; width: 100%; overflow: visible; }
+  .chart text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .chart text.value { fill: var(--text-secondary); }
+
+  details { margin-top: 8px; font-size: 13px; }
+  summary { cursor: pointer; color: var(--text-secondary); }
+  pre {
+    background: var(--code-bg);
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 12px;
+  }
+  .table-wrap { max-height: 280px; overflow: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { color: var(--text-secondary); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+
+  #tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: var(--surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    line-height: 1.4;
+    display: none;
+    z-index: 10;
+    max-width: 260px;
+  }
+  #tooltip .t { color: var(--text-secondary); font-size: 12px; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Lakehouse serverless: DuckDB + dbt sobre Parquet</h1>
+    <p>
+      Esta página no tiene backend. Descarga los Parquet de la capa Gold y los consulta
+      en tu navegador con DuckDB-WASM. Los datos son sintéticos y salen del mismo
+      pipeline que corre en AWS Lambda o Cloud Run, ejecutado día por día en GitHub Actions.
+    </p>
+    <nav>
+      <a href="dbt/">Documentación y linaje de dbt</a>
+      <a href="https://github.com/galvysRodriguez/serverless-lakehouse-duckdb-dbt">Código en GitHub</a>
+    </nav>
+    <div id="status" role="status">Cargando DuckDB-WASM…</div>
+  </header>
+
+  <section>
+    <h2>Negocio</h2>
+    <p class="lede">
+      Ingresos por día de creación del pedido, con la versión vigente de cada pedido (los
+      cambios de estado que llegan días después se aplican al mes original).
+    </p>
+    <div class="tiles" id="biz-tiles"></div>
+    <div class="card">
+      <h3>Ingresos brutos por día</h3>
+      <p class="sub">USD, pedidos no cancelados · <code>gld_daily_sales</code></p>
+      <div class="chart" id="chart-daily"></div>
+      <details data-for="daily"><summary>Ver tabla y SQL</summary></details>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Ingresos por categoría</h3>
+        <p class="sub">USD, histórico · <code>gld_product_performance</code></p>
+        <div class="chart" id="chart-category"></div>
+        <details data-for="category"><summary>Ver tabla y SQL</summary></details>
+      </div>
+      <div class="card">
+        <h3>Ingresos por país del cliente</h3>
+        <p class="sub">USD, histórico · <code>gld_customer_ltv</code></p>
+        <div class="chart" id="chart-country"></div>
+        <details data-for="country"><summary>Ver tabla y SQL</summary></details>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>FinOps: lo que cuesta producir estos datos</h2>
+    <p class="lede">
+      Cada <code>dbt build</code> deja una fila en <code>ops/pipeline_runs</code>. El costo es
+      la duración medida × el precio de lista de una Lambda arm64 de 3 GB. La duración se
+      midió en un runner de GitHub Actions, no en Lambda, así que es una estimación de orden
+      de magnitud.
+    </p>
+    <div class="tiles" id="ops-tiles"></div>
+    <div class="card">
+      <h3>Duración de cada ejecución diaria</h3>
+      <p class="sub">segundos por día de datos · <code>ops/pipeline_runs</code></p>
+      <div class="chart" id="chart-runs"></div>
+      <details data-for="runs"><summary>Ver tabla y SQL</summary></details>
+    </div>
+  </section>
+
+  <footer>
+    Generado por <code>.github/workflows/pages.yml</code> en cada push a <code>main</code>.
+  </footer>
+</main>
+<div id="tooltip" role="tooltip"></div>
+
+<script type="module">
+import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm";
+
+const TABLES = ["daily_sales", "product_performance", "customer_ltv", "pipeline_runs"];
+
+const QUERIES = {
+  daily: `select order_date::varchar as dia,
+       orders_count::int as pedidos,
+       cancelled_count::int as cancelados,
+       gross_revenue::double as ingresos
+from daily_sales
+order by order_date`,
+  category: `select category as categoria, sum(revenue)::double as ingresos,
+       sum(units_sold)::int as unidades
+from product_performance
+group by all order by ingresos desc`,
+  country: `select country as pais, sum(lifetime_revenue)::double as ingresos,
+       count(*)::int as clientes
+from customer_ltv
+group by all order by ingresos desc`,
+  runs: `-- última ejecución exitosa de cada día de datos
+select run_date::varchar as dia, duration_s as segundos,
+       est_cost_usd as costo_usd, silver_rows::int as filas_silver
+from pipeline_runs
+where success
+qualify row_number() over (partition by run_date order by started_at desc) = 1
+order by run_date`,
+};
+
+const fmtUsd = new Intl.NumberFormat("es", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const fmtUsdCompact = new Intl.NumberFormat("es", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
+const fmtInt = new Intl.NumberFormat("es");
+const fmtDec = new Intl.NumberFormat("es", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const fmtSec = (s) => `${fmtDec.format(s)} s`;
+const fmtTinyUsd = new Intl.NumberFormat("es", { style: "currency", currency: "USD", maximumSignificantDigits: 2 }).format;
+const fmtDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("es", { day: "numeric", month: "short" });
+const fmtDateLong = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("es", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+
+const status = document.getElementById("status");
+const tooltip = document.getElementById("tooltip");
+const SVG = "http://www.w3.org/2000/svg";
+
+async function openDb() {
+  const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+  const workerUrl = URL.createObjectURL(
+    new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" })
+  );
+  const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(workerUrl));
+  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  URL.revokeObjectURL(workerUrl);
+  // Se descargan enteros: son chicos y así no dependemos de que el servidor acepte Range.
+  for (const name of TABLES) {
+    const res = await fetch(`data/${name}.parquet`);
+    if (!res.ok) throw new Error(`data/${name}.parquet: HTTP ${res.status}`);
+    await db.registerFileBuffer(`${name}.parquet`, new Uint8Array(await res.arrayBuffer()));
+  }
+  const conn = await db.connect();
+  for (const name of TABLES) {
+    await conn.query(`create view ${name} as from '${name}.parquet'`);
+  }
+  return conn;
+}
+
+async function run(conn, key) {
+  const table = await conn.query(QUERIES[key]);
+  return table.toArray().map((r) => r.toJSON());
+}
+
+// --- piezas comunes -----------------------------------------------------------
+
+function el(tag, attrs = {}, parent) {
+  const node = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+function niceTicks(max, count = 4) {
+  const raw = max / count;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+  const ticks = [];
+  for (let v = 0; v <= max + step * 0.001; v += step) ticks.push(v);
+  if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
+  return ticks;
+}
+
+function showTip(evt, html) {
+  tooltip.innerHTML = html;
+  tooltip.style.display = "block";
+  const pad = 14;
+  const { innerWidth: w, innerHeight: h } = window;
+  const rect = tooltip.getBoundingClientRect();
+  let x = evt.clientX + pad;
+  let y = evt.clientY + pad;
+  if (x + rect.width > w - 8) x = evt.clientX - rect.width - pad;
+  if (y + rect.height > h - 8) y = evt.clientY - rect.height - pad;
+  tooltip.style.left = `${Math.max(8, x)}px`;
+  tooltip.style.top = `${Math.max(8, y)}px`;
+}
+const hideTip = () => { tooltip.style.display = "none"; };
+
+function tile(parent, label, value, hint = "") {
+  const div = document.createElement("div");
+  div.className = "tile";
+  div.innerHTML = `<div class="label"></div><div class="value"></div><div class="hint"></div>`;
+  div.children[0].textContent = label;
+  div.children[1].textContent = value;
+  div.children[2].textContent = hint;
+  parent.appendChild(div);
+}
+
+function tableView(key, rows) {
+  const details = document.querySelector(`details[data-for="${key}"]`);
+  const pre = document.createElement("pre");
+  pre.textContent = QUERIES[key];
+  const wrap = document.createElement("div");
+  wrap.className = "table-wrap";
+  const table = document.createElement("table");
+  const cols = Object.keys(rows[0] ?? {});
+  table.innerHTML = `<thead><tr>${cols.map(() => "<th></th>").join("")}</tr></thead><tbody></tbody>`;
+  cols.forEach((c, i) => { table.tHead.rows[0].cells[i].textContent = c; });
+  for (const r of rows) {
+    const tr = table.tBodies[0].insertRow();
+    for (const c of cols) {
+      const v = r[c];
+      tr.insertCell().textContent = typeof v === "number" && !Number.isInteger(v) ? v.toFixed(c.includes("costo") ? 6 : 2) : v;
+    }
+  }
+  wrap.appendChild(table);
+  details.append(pre, wrap);
+}
+
+// --- línea con crosshair ------------------------------------------------------
+
+function lineChart(container, rows, { x, y, fmtY, fmtYAxis, tip, label }) {
+  container.innerHTML = "";
+  const W = container.clientWidth;
+  const H = 240;
+  const m = { top: 12, right: 16, bottom: 26, left: 56 };
+  const iw = W - m.left - m.right;
+  const ih = H - m.top - m.bottom;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": label }, container);
+
+  const maxY = Math.max(...rows.map((r) => r[y]));
+  const ticks = niceTicks(maxY);
+  const top = ticks[ticks.length - 1];
+  const sx = (i) => m.left + (rows.length === 1 ? iw / 2 : (i / (rows.length - 1)) * iw);
+  const sy = (v) => m.top + ih - (v / top) * ih;
+
+  for (const t of ticks) {
+    el("line", { x1: m.left, x2: m.left + iw, y1: sy(t), y2: sy(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)", "stroke-width": 1 }, svg);
+    el("text", { x: m.left - 8, y: sy(t) + 4, "text-anchor": "end" }, svg).textContent = fmtYAxis(t);
+  }
+  // Etiquetas del eje x: el primer día de cada mes (y el primero de la serie).
+  const minGap = 48;
+  let lastX = -Infinity;
+  rows.forEach((r, i) => {
+    if (i !== 0 && !r[x].endsWith("-01")) return;
+    if (sx(i) - lastX < minGap) return;
+    lastX = sx(i);
+    el("text", { x: sx(i), y: H - 6, "text-anchor": i === 0 ? "start" : "middle" }, svg).textContent = fmtDate(r[x]);
+  });
+
+  const pts = rows.map((r, i) => `${sx(i)},${sy(r[y])}`);
+  el("path", { d: `M${sx(0)},${sy(0)} L${pts.join(" L")} L${sx(rows.length - 1)},${sy(0)} Z`, fill: "var(--series-1-wash)" }, svg);
+  el("path", { d: `M${pts.join(" L")}`, fill: "none", stroke: "var(--series-1)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+
+  const last = rows.length - 1;
+  el("circle", { cx: sx(last), cy: sy(rows[last][y]), r: 4, fill: "var(--series-1)", stroke: "var(--surface)", "stroke-width": 2 }, svg);
+
+  const cross = el("line", { y1: m.top, y2: m.top + ih, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" }, svg);
+  const dot = el("circle", { r: 4, fill: "var(--series-1)", stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" }, svg);
+  const hit = el("rect", { x: m.left, y: m.top, width: iw, height: ih, fill: "transparent" }, svg);
+  hit.addEventListener("pointermove", (evt) => {
+    const box = svg.getBoundingClientRect();
+    const px = ((evt.clientX - box.left) / box.width) * W;
+    const i = Math.max(0, Math.min(last, Math.round(((px - m.left) / iw) * last)));
+    const r = rows[i];
+    cross.setAttribute("x1", sx(i)); cross.setAttribute("x2", sx(i));
+    dot.setAttribute("cx", sx(i)); dot.setAttribute("cy", sy(r[y]));
+    cross.setAttribute("visibility", "visible"); dot.setAttribute("visibility", "visible");
+    showTip(evt, tip(r));
+  });
+  hit.addEventListener("pointerleave", () => {
+    cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden");
+    hideTip();
+  });
+}
+
+// --- barras horizontales ------------------------------------------------------
+
+function barChart(container, rows, { cat, val, fmt, tip, label }) {
+  container.innerHTML = "";
+  const W = container.clientWidth;
+  const rowH = 30;
+  const barH = 18;
+  const labelW = Math.min(110, W * 0.3);
+  const valueW = 64;
+  const H = rows.length * rowH;
+  const iw = W - labelW - valueW;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": label }, container);
+  const max = Math.max(...rows.map((r) => r[val]));
+
+  rows.forEach((r, i) => {
+    const y = i * rowH + (rowH - barH) / 2;
+    const w = Math.max(2, (r[val] / max) * iw);
+    const rad = Math.min(4, w);
+    const g = el("g", {}, svg);
+    el("rect", { x: 0, y: i * rowH, width: W, height: rowH, fill: "transparent" }, g);
+    el("text", { x: labelW - 8, y: y + barH / 2 + 4, "text-anchor": "end", class: "value" }, g).textContent = r[cat];
+    // Extremo de datos redondeado, base recta.
+    const x0 = labelW;
+    el("path", {
+      d: `M${x0},${y} H${x0 + w - rad} Q${x0 + w},${y} ${x0 + w},${y + rad} V${y + barH - rad} Q${x0 + w},${y + barH} ${x0 + w - rad},${y + barH} H${x0} Z`,
+      fill: "var(--series-1)",
+    }, g);
+    el("text", { x: x0 + w + 6, y: y + barH / 2 + 4, class: "value" }, g).textContent = fmt(r[val]);
+    g.addEventListener("pointermove", (evt) => showTip(evt, tip(r)));
+    g.addEventListener("pointerleave", hideTip);
+  });
+  el("line", { x1: labelW, x2: labelW, y1: 0, y2: H, stroke: "var(--axis)", "stroke-width": 1 }, svg);
+}
+
+// --- columnas -------------------------------------------------------------------
+
+function columnChart(container, rows, { x, y, fmtYAxis, tip, label }) {
+  container.innerHTML = "";
+  const W = container.clientWidth;
+  const H = 220;
+  const m = { top: 12, right: 8, bottom: 26, left: 44 };
+  const iw = W - m.left - m.right;
+  const ih = H - m.top - m.bottom;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": label }, container);
+  const ticks = niceTicks(Math.max(...rows.map((r) => r[y])));
+  const top = ticks[ticks.length - 1];
+  const sy = (v) => m.top + ih - (v / top) * ih;
+  const band = iw / rows.length;
+  const gap = 2;
+  const bw = Math.max(1, Math.min(24, band - gap));
+
+  for (const t of ticks) {
+    el("line", { x1: m.left, x2: m.left + iw, y1: sy(t), y2: sy(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)", "stroke-width": 1 }, svg);
+    el("text", { x: m.left - 8, y: sy(t) + 4, "text-anchor": "end" }, svg).textContent = fmtYAxis(t);
+  }
+  let lastX = -Infinity;
+  rows.forEach((r, i) => {
+    const cx = m.left + i * band + band / 2;
+    const h = Math.max(1, sy(0) - sy(r[y]));
+    const x0 = cx - bw / 2;
+    const y0 = sy(0) - h;
+    const rad = Math.min(bw >= 8 ? 4 : 1, h, bw / 2);
+    const g = el("g", {}, svg);
+    el("rect", { x: m.left + i * band, y: m.top, width: band, height: ih, fill: "transparent" }, g);
+    el("path", {
+      d: `M${x0},${sy(0)} V${y0 + rad} Q${x0},${y0} ${x0 + rad},${y0} H${x0 + bw - rad} Q${x0 + bw},${y0} ${x0 + bw},${y0 + rad} V${sy(0)} Z`,
+      fill: "var(--series-1)",
+    }, g);
+    g.addEventListener("pointermove", (evt) => showTip(evt, tip(r)));
+    g.addEventListener("pointerleave", hideTip);
+    if ((i === 0 || r[x].endsWith("-01")) && cx - lastX >= 48) {
+      lastX = cx;
+      el("text", { x: cx, y: H - 6, "text-anchor": i === 0 ? "start" : "middle" }, svg).textContent = fmtDate(r[x]);
+    }
+  });
+}
+
+// --- armado -------------------------------------------------------------------
+
+async function main() {
+  const conn = await openDb();
+  const [daily, category, country, runs] = await Promise.all(
+    ["daily", "category", "country", "runs"].map((k) => run(conn, k))
+  );
+  status.remove();
+
+  const revenue = daily.reduce((s, r) => s + r.ingresos, 0);
+  const orders = daily.reduce((s, r) => s + r.pedidos, 0);
+  const cancelled = daily.reduce((s, r) => s + r.cancelados, 0);
+  const customers = country.reduce((s, r) => s + r.clientes, 0);
+  const bizTiles = document.getElementById("biz-tiles");
+  tile(bizTiles, "Ingresos brutos", fmtUsdCompact.format(revenue), `${daily.length} días`);
+  tile(bizTiles, "Pedidos", fmtInt.format(orders), `${fmtDec.format(cancelled / orders * 100)} % cancelados`);
+  tile(bizTiles, "Ticket medio", fmtUsd.format(revenue / (orders - cancelled)), "por pedido no cancelado");
+  tile(bizTiles, "Clientes con compras", fmtInt.format(customers));
+
+  const totalSec = runs.reduce((s, r) => s + r.segundos, 0);
+  const costs = runs.map((r) => r.costo_usd).filter((v) => v != null);
+  const cost = costs.reduce((s, v) => s + v, 0);
+  const opsTiles = document.getElementById("ops-tiles");
+  tile(opsTiles, "Ejecuciones diarias", fmtInt.format(runs.length), "una por día de datos");
+  tile(opsTiles, "Duración media", fmtSec(totalSec / runs.length), `máx. ${fmtSec(Math.max(...runs.map((r) => r.segundos)))}`);
+  if (costs.length) {
+    tile(opsTiles, "Costo por día", fmtTinyUsd(cost / costs.length), "cómputo estimado");
+    tile(opsTiles, "Proyección mensual", fmtTinyUsd(cost / costs.length * 30), "sin almacenamiento ni requests");
+  }
+
+  const draw = () => {
+    lineChart(document.getElementById("chart-daily"), daily, {
+      x: "dia", y: "ingresos", label: "Ingresos brutos por día",
+      fmtYAxis: (v) => fmtUsdCompact.format(v),
+      tip: (r) => `<div class="t">${fmtDateLong(r.dia)}</div><b>${fmtUsd.format(r.ingresos)}</b><br>${fmtInt.format(r.pedidos)} pedidos · ${fmtInt.format(r.cancelados)} cancelados`,
+    });
+    barChart(document.getElementById("chart-category"), category, {
+      cat: "categoria", val: "ingresos", label: "Ingresos por categoría",
+      fmt: (v) => fmtUsdCompact.format(v),
+      tip: (r) => `<div class="t">${r.categoria}</div><b>${fmtUsd.format(r.ingresos)}</b><br>${fmtInt.format(r.unidades)} unidades`,
+    });
+    barChart(document.getElementById("chart-country"), country, {
+      cat: "pais", val: "ingresos", label: "Ingresos por país",
+      fmt: (v) => fmtUsdCompact.format(v),
+      tip: (r) => `<div class="t">${r.pais}</div><b>${fmtUsd.format(r.ingresos)}</b><br>${fmtInt.format(r.clientes)} clientes`,
+    });
+    columnChart(document.getElementById("chart-runs"), runs, {
+      x: "dia", y: "segundos", label: "Duración por ejecución diaria",
+      fmtYAxis: (v) => `${v} s`,
+      tip: (r) => `<div class="t">${fmtDateLong(r.dia)}</div><b>${fmtSec(r.segundos)}</b>${r.costo_usd != null ? ` · ${fmtTinyUsd(r.costo_usd)}` : ""}<br>${fmtInt.format(r.filas_silver)} filas en silver`,
+    });
+  };
+  draw();
+  let pending;
+  window.addEventListener("resize", () => { clearTimeout(pending); pending = setTimeout(draw, 120); });
+
+  tableView("daily", daily);
+  tableView("category", category);
+  tableView("country", country);
+  tableView("runs", runs);
+}
+
+main().catch((err) => {
+  console.error(err);
+  status.className = "error";
+  status.textContent = `No se pudieron cargar los datos: ${err.message}`;
+});
+</script>
+</body>
+</html>

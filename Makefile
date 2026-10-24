@@ -12,7 +12,7 @@ AWS_PLATFORM ?= linux/arm64
 GCP_PLATFORM ?= linux/amd64
 TAG          ?= latest
 
-.PHONY: install generate run lint format test test-unit docs clean smoke \
+.PHONY: install generate run lint format test test-unit docs site site-serve clean smoke \
         image-aws image-gcp aws-bootstrap aws-push aws-deploy gcp-bootstrap gcp-push gcp-deploy
 
 install:
@@ -39,11 +39,22 @@ test:
 test-unit:
 	$(BIN)/pytest -m "not e2e"
 
+# full_scan evita que affected_months() consulte silver al compilar (no hay run_date).
+DOCS_VARS := --vars '{"full_scan": true}'
+
 docs:  ## documentación y linaje de dbt en http://localhost:8080
-	cd dbt && LAKE_ROOT=$(abspath data/lake) ../$(BIN)/dbt docs generate --profiles-dir . && ../$(BIN)/dbt docs serve --profiles-dir .
+	cd dbt && LAKE_ROOT=$(abspath data/lake) ../$(BIN)/dbt docs generate --profiles-dir . $(DOCS_VARS) && ../$(BIN)/dbt docs serve --profiles-dir .
+
+site:  ## dashboard + dbt docs estáticos en site/ (requiere make generate && make run)
+	$(BIN)/python scripts/build_site.py --lake data/lake --out site
+	cd dbt && LAKE_ROOT=$(abspath data/lake) ../$(BIN)/dbt docs generate --static --profiles-dir . $(DOCS_VARS)
+	mkdir -p site/dbt && cp dbt/target/static_index.html site/dbt/index.html
+
+site-serve: site  ## sirve site/ en http://localhost:8000
+	$(BIN)/python -m http.server 8000 -d site
 
 clean:
-	rm -rf data dbt/target dbt/logs .pytest_cache .ruff_cache
+	rm -rf data site/data site/dbt dbt/target dbt/logs .pytest_cache .ruff_cache
 
 image-aws:
 	$(DOCKER) build --target aws --platform $(AWS_PLATFORM) -t lakehouse:aws .
